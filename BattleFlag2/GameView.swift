@@ -154,7 +154,7 @@ struct GameView: View {
                 VStack(spacing: 5) {
                     Button(action: {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            viewModel.moveSelectedItem(direction: .up)
+                            _ = viewModel.moveSelectedItem(direction: .up)
                         }
                     }) {
                         Image(systemName: "arrowtriangle.up.fill")
@@ -163,7 +163,7 @@ struct GameView: View {
                     HStack(spacing: 30) {
                         Button(action: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                viewModel.moveSelectedItem(direction: .left)
+                                _ = viewModel.moveSelectedItem(direction: .left)
                             }
                         }) {
                             Image(systemName: "arrowtriangle.left.fill")
@@ -171,7 +171,7 @@ struct GameView: View {
                         }
                         Button(action: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                viewModel.moveSelectedItem(direction: .down)
+                                _ = viewModel.moveSelectedItem(direction: .down)
                             }
                         }) {
                             Image(systemName: "arrowtriangle.down.fill")
@@ -179,7 +179,7 @@ struct GameView: View {
                         }
                         Button(action: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                viewModel.moveSelectedItem(direction: .right)
+                                _ = viewModel.moveSelectedItem(direction: .right)
                             }
                         }) {
                             Image(systemName: "arrowtriangle.right.fill")
@@ -188,7 +188,7 @@ struct GameView: View {
                     }
                 }
                 .padding()
-                .background(Color.blue.opacity(0.1))
+                .background(content: {SwiftUI.Color.blue.opacity(0.1)})
                 .cornerRadius(10)
                 .transition(.scale)
             } else {

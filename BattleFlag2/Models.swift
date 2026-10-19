@@ -45,7 +45,7 @@ let levels: [Level] = [
         startPos: (5, 3),
         targetPos: (4, 4),
         minSteps: 5,
-        checkOptimal: false,
+        checkOptimal: true,
         generate: false
     ),
     // Level 2
@@ -65,7 +65,7 @@ let levels: [Level] = [
         startPos: (3, 3),
         targetPos: (4, 4),
         minSteps: 9,
-        checkOptimal: false,
+        checkOptimal: true,
         generate: false
     ),
     // Level 3
@@ -85,7 +85,7 @@ let levels: [Level] = [
         startPos: (4, 3),
         targetPos: (3, 4),
         minSteps: 9,
-        checkOptimal: false,
+        checkOptimal: true,
         generate: false
     ),
     // Level 4
@@ -105,7 +105,7 @@ let levels: [Level] = [
         startPos: (1, 1),
         targetPos: (4, 4),
         minSteps: 7,
-        checkOptimal: false,
+        checkOptimal: true,
         generate: false
     ),
     //Test level

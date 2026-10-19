@@ -1,13 +1,13 @@
 import SwiftUI
 import Combine
 
-enum SelectionType {
+enum SelectionType: Hashable {
     case flag
     case box(row: Int, col: Int)
 }
 
 // Represents an animatable piece on the board
-struct MovingPiece: Identifiable {
+struct MovingPiece: Identifiable, Hashable{
     let id: String       // stable identity: "flag" or "box-r-c" based on initial position
     var row: Int
     var col: Int
@@ -16,13 +16,22 @@ struct MovingPiece: Identifiable {
 }
 
 // Snapshot of all mutable game state, used for undo
-private struct GameSnapshot {
+private struct GameSnapshot: Hashable {
     let grid: [[Int]]
     let pieces: [MovingPiece]
     let flagRow: Int
     let flagCol: Int
     let steps: Int
     let selectedItem: SelectionType?
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.grid == rhs.grid
+    }
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(grid)
+    }
+    func copy() -> GameSnapshot {
+        return GameSnapshot(grid: grid, pieces: pieces, flagRow: flagRow, flagCol: flagCol, steps: steps, selectedItem: selectedItem)
+    }
 }
 
 class GameViewModel: ObservableObject {
@@ -52,7 +61,7 @@ class GameViewModel: ObservableObject {
         self.flagCol = level.startPos.col
         self.pieces = GameViewModel.buildPieces(from: level.grid)
         if level.checkOptimal {
-            self.currentLevel.minSteps = findOptimal()
+            self.currentLevel.minSteps = findOptimal(maxSteps: 10)
         }
         if (level.generate) {
             generateLevelCaller()
@@ -147,12 +156,7 @@ class GameViewModel: ObservableObject {
                 }
             }
             else {
-                if Int.random(in: 0...10) < 2 {
-                    
-                }
-                else {
-                    grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] = TileType.box.rawValue
-                }
+                grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] = TileType.box.rawValue
             }
             loops = 0
             path.append(pointer)
@@ -214,6 +218,7 @@ class GameViewModel: ObservableObject {
         var found: Bool = false
         var timeLimitExceeded: Bool = false
         var steps: Int = 0
+        var visited: Set<GameSnapshot> = []
         while (!found && !timeLimitExceeded) {
             var newSnapshots: [GameSnapshot] = []
             for index in 0..<snapshots.count where !found {
@@ -230,17 +235,24 @@ class GameViewModel: ObservableObject {
                             checkState(considerLoss: true)
                             if (isWin) {
                                 found = true
-                                print("Winning Grid: \(grid)")
+                                print("Winning Grid: ")
+                                for line in grid {
+                                    print(line)
+                                }
                                 break
                             }
-                            newSnapshots.append(GameSnapshot(
+                            let nextNode = GameSnapshot(
                                 grid: grid,
                                 pieces: pieces,
                                 flagRow: flagRow,
                                 flagCol: flagCol,
                                 steps: steps,
                                 selectedItem: selectedItem
-                            ))
+                            )
+                            if !visited.contains(nextNode) {
+                                newSnapshots.append(nextNode)
+                                visited.insert(nextNode.copy())
+                            }
                         }
                     }
                 }
