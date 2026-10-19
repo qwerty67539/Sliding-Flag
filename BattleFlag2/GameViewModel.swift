@@ -55,11 +55,22 @@ class GameViewModel: ObservableObject {
             self.currentLevel.minSteps = findOptimal()
         }
         if (level.generate) {
-            generateLevel()
+            generateLevelCaller()
         }
     }
     
-    func generateLevel() {
+    func generateLevelCaller() {
+        var activated = false
+        while (true) {
+            if (generateLevel()) {
+                print("Activated: ", activated)
+                break
+            }
+            activated = true
+        }
+    }
+    
+    func generateLevel() -> Bool{
         grid = [
             [-1, -1, -1, -1, -1, -1, -1, -1],
             [-1, -1, -1, -1, -1, -1, -1, -1],
@@ -112,7 +123,7 @@ class GameViewModel: ObservableObject {
                 if (repeats < 0 || grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 2 ) {
                     loops += 1
                     if loops > 10 {
-                        break
+                        return false
                     }
                     var newDirection = direction
                     repeat {
@@ -136,7 +147,12 @@ class GameViewModel: ObservableObject {
                 }
             }
             else {
-                grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] = TileType.box.rawValue
+                if Int.random(in: 0...10) < 2 {
+                    
+                }
+                else {
+                    grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] = TileType.box.rawValue
+                }
             }
             loops = 0
             path.append(pointer)
@@ -167,6 +183,10 @@ class GameViewModel: ObservableObject {
         }
         currentLevel = Level(id: currentLevel.id, name: currentLevel.name, grid: grid, startPos: (row: path[0][0], col: path[0][1]), targetPos: (row: pointer[0], col: pointer[1]), minSteps: steps, checkOptimal: false, generate: true)
         pieces = GameViewModel.buildPieces(from: grid)
+        if (findOptimal(maxSteps: 2) > 0) {
+            return false
+        }
+        return true
     }
     
     func oppositeDirection(direction: MoveDirection?) -> MoveDirection? {
@@ -188,7 +208,7 @@ class GameViewModel: ObservableObject {
     }
     
     //BFS for optimal solution
-    func findOptimal() -> Int {
+    func findOptimal(maxSteps: Int = 5) -> Int {
         isTesting = true
         saveSnapshot()
         var found: Bool = false
@@ -226,7 +246,7 @@ class GameViewModel: ObservableObject {
                 }
             }
             steps += 1
-            if steps > 5 {
+            if steps > maxSteps {
                 timeLimitExceeded = true
                 break
             }
@@ -260,25 +280,27 @@ class GameViewModel: ObservableObject {
     }
 
     func reset() {
-        if isPerfectWin && currentLevel.generate {
-            generateLevel()
-        }
-        else {
-            self.grid = currentLevel.grid
-        
-        for line in grid {
-            print(line)
-        }
-            self.flagRow = currentLevel.startPos.row
-            self.flagCol = currentLevel.startPos.col
-        }
+        self.snapshots = []
         self.steps = 0
         self.isGameOver = false
         self.isWin = false
-        self.isPerfectWin = false
         self.selectedItem = nil
+        if isPerfectWin && currentLevel.generate {
+            self.isPerfectWin = false
+            generateLevelCaller()
+        }
+        else {
+            self.isPerfectWin = false
+            self.grid = currentLevel.grid
+        
+            for line in grid {
+                print(line)
+            }
+            print(isPerfectWin)
+            self.flagRow = currentLevel.startPos.row
+            self.flagCol = currentLevel.startPos.col
+        }
         self.pieces = GameViewModel.buildPieces(from: currentLevel.grid)
-        self.snapshots = []
     }
 
     func loadSnapshot(pop: Bool, index: Int = 0) {
