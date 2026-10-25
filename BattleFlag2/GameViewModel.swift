@@ -79,7 +79,7 @@ class GameViewModel: ObservableObject {
         }
     }
 
-    func generateLevel() -> Bool{
+    func generateLevel() -> Bool {
         grid = [
             [-1, -1, -1, -1, -1, -1, -1, -1],
             [-1, -1, -1, -1, -1, -1, -1, -1],
@@ -100,11 +100,9 @@ class GameViewModel: ObservableObject {
         var steps = Int.random(in: 4...7)
         var currentStep = 0
         var loops = 0
-        for line in grid {
-            print(line)
-        }
+        for line in grid { print(line) }
         print(pointer, "\n")
-        while currentStep < steps{
+        while currentStep < steps {
             var repeats = 0
             let pointerReset = pointer
             let gridReset = grid
@@ -119,21 +117,16 @@ class GameViewModel: ObservableObject {
                     if grid[pointer[0]][pointer[1]] > 0 {
                         repeats = -1
                         break
-                    }
-                    else {
+                    } else {
                         grid[pointer[0]][pointer[1]] = 0
                     }
                     repeats += 1
-                    for line in grid {
-                        print(line)
-                    }
+                    for line in grid { print(line) }
                     print(pointer, ", ", repeats, ", ", previousDirection ?? "nil", "\n")
                 }
-                if (repeats < 0 || grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 2 ) {
+                if (repeats < 0 || grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 2) {
                     loops += 1
-                    if loops > 10 {
-                        return false
-                    }
+                    if loops > 10 { return false }
                     var newDirection = direction
                     repeat {
                         newDirection = MoveDirection.allCases[Int.random(in: 0...3)]
@@ -143,19 +136,13 @@ class GameViewModel: ObservableObject {
                 }
             } while repeats < 0
 
-            if grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 0 || grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 2 {
+            if grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 0 ||
+               grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 2 {
                 pointer = pointerReset
                 grid = gridReset
                 loops += 1
-                if (loops < 10) {
-                    continue
-                }
-                else {
-                    steps = currentStep
-                    break
-                }
-            }
-            else {
+                if loops < 10 { continue } else { steps = currentStep; break }
+            } else {
                 grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] = TileType.box.rawValue
             }
             loops = 0
@@ -166,9 +153,7 @@ class GameViewModel: ObservableObject {
                 newDirection = MoveDirection.allCases[Int.random(in: 0...3)]
             } while newDirection == direction || newDirection == oppositeDirection(direction: direction)
             direction = newDirection
-            for line in grid {
-                print(line)
-            }
+            for line in grid { print(line) }
             print(pointer)
             print("\n")
             currentStep += 1
@@ -180,35 +165,21 @@ class GameViewModel: ObservableObject {
         grid[pointer[0]][pointer[1]] = TileType.target.rawValue
         for row in 0..<grid.count {
             for col in 0..<grid[row].count {
-                if grid[row][col] == -1 {
-                    grid[row][col] = 0
-                }
+                if grid[row][col] == -1 { grid[row][col] = 0 }
             }
         }
         currentLevel = Level(id: currentLevel.id, name: currentLevel.name, grid: grid, startPos: (row: path[0][0], col: path[0][1]), targetPos: (row: pointer[0], col: pointer[1]), minSteps: steps, checkOptimal: false, generate: true)
         pieces = GameViewModel.buildPieces(from: grid)
-        if (findOptimal(maxSteps: 2) > 0) {
-            return false
-        }
+        if (findOptimal(maxSteps: 2) > 0) { return false }
         return true
     }
 
     func oppositeDirection(direction: MoveDirection?) -> MoveDirection? {
-        if direction == .up {
-            return .down
-        }
-        else if direction == .down {
-            return .up
-        }
-        else if direction == .right {
-            return .left
-        }
-        else if direction == .left {
-            return .right
-        }
-        else {
-            return nil
-        }
+        if direction == .up    { return .down  }
+        if direction == .down  { return .up    }
+        if direction == .right { return .left  }
+        if direction == .left  { return .right }
+        return nil
     }
 
     // -------------------------------------------------------------------------
@@ -238,6 +209,27 @@ class GameViewModel: ObservableObject {
                 return BFSState(w0: w0, w1: (w1 & ~mask) | bits)
             }
         }
+
+        // Extract all box cell-indices via bitwise scan — avoids looping all 64 cells.
+        // boxRaw == 1 (binary 01), so a 2-bit pair is a box iff its low bit is 1
+        // and its high bit is 0.
+        func boxIndices() -> [Int] {
+            var result = [Int]()
+            result.reserveCapacity(12)
+            for (base, word) in [(0, w0), (32, w1)] {
+                // lo: set at even bit positions where low bit of pair == 1
+                // hi: set at even bit positions where high bit of pair == 1
+                let lo = word & 0x5555555555555555
+                let hi = (word >> 1) & 0x5555555555555555
+                var boxes = lo & ~hi  // set only where 2-bit value == 01 (box)
+                while boxes != 0 {
+                    let bit = boxes.trailingZeroBitCount  // lowest set bit (even position)
+                    result.append(base + (bit >> 1))      // cell index
+                    boxes &= boxes - 1                    // clear lowest set bit
+                }
+            }
+            return result
+        }
     }
 
     // Pack self.grid into a BFSState bitboard.
@@ -262,8 +254,9 @@ class GameViewModel: ObservableObject {
         var flagIdx: Int
     }
 
-    // BFS for optimal solution — fully self-contained, never touches @Published state.
-    // Uses a compact bitboard so hashing/equality are O(1) integer ops.
+    // Forward BFS for optimal solution — fully self-contained, never touches @Published state.
+    // Uses a compact bitboard (O(1) hash/equality) and precomputed box positions
+    // (skips empty cells in the inner loop) for maximum speed.
     func findOptimal(maxSteps: Int = 5) -> Int {
         let startTime = Date()
 
@@ -272,11 +265,10 @@ class GameViewModel: ObservableObject {
         let target    = currentLevel.targetPos
         let targetIdx = target.row * cols + target.col
 
-        let flagRaw  = TileType.flag.rawValue
-        let boxRaw   = TileType.box.rawValue
-        let emptyRaw = TileType.empty.rawValue
+        let flagRaw  = TileType.flag.rawValue   // 2
+        let boxRaw   = TileType.box.rawValue    // 1
+        let emptyRaw = TileType.empty.rawValue  // 0
 
-        // Four directions as plain (dRow, dCol) — avoids enum switch in hot loop.
         let deltas = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
         let initial  = BFSNode(state: packGrid(), flagIdx: flagRow * cols + flagCol)
@@ -293,6 +285,7 @@ class GameViewModel: ObservableObject {
                 let fIdx = node.flagIdx
                 let fRow = fIdx / cols
                 let fCol = fIdx % cols
+                let boxes = st.boxIndices()   // only actual box positions, not all 64 cells
 
                 for (dRow, dCol) in deltas {
 
@@ -317,40 +310,34 @@ class GameViewModel: ObservableObject {
                         if visited.insert(newNode).inserted { next.append(newNode) }
                     }
 
-                    // ── Move each box ──────────────────────────────────────
-                    for r in 0..<rows {
-                        for c in 0..<cols {
-                            let bIdx = r * cols + c
-                            guard st.tile(at: bIdx) == boxRaw else { continue }
-
-                            var btRow = r, btCol = c, hitObstacle = false
-                            while true {
-                                let nRow = btRow + dRow; let nCol = btCol + dCol
-                                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols { break }
-                                let t = st.tile(at: nRow * cols + nCol)
-                                if t == boxRaw || t == flagRaw { hitObstacle = true; break }
-                                btRow = nRow; btCol = nCol
-                            }
-
-                            let newBIdx = btRow * cols + btCol
-                            guard newBIdx != bIdx else { continue }  // no movement
-
-                            if !hitObstacle {
-                                let nRow = btRow + dRow; let nCol = btCol + dCol
-                                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols {
-                                    // box falls off board — valid state, never a win
-                                    let newSt   = st.setting(index: bIdx, to: emptyRaw)
-                                    let newNode = BFSNode(state: newSt, flagIdx: fIdx)
-                                    if visited.insert(newNode).inserted { next.append(newNode) }
-                                    continue
-                                }
-                            }
-
-                            let newSt   = st.setting(index: bIdx,    to: emptyRaw)
-                                           .setting(index: newBIdx, to: boxRaw)
-                            let newNode = BFSNode(state: newSt, flagIdx: fIdx)
-                            if visited.insert(newNode).inserted { next.append(newNode) }
+                    // ── Move each box (iterate only actual box positions) ───
+                    for bIdx in boxes {
+                        let r = bIdx / cols, c = bIdx % cols
+                        var btRow = r, btCol = c, hitObstacle = false
+                        while true {
+                            let nRow = btRow + dRow; let nCol = btCol + dCol
+                            if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols { break }
+                            let t = st.tile(at: nRow * cols + nCol)
+                            if t == boxRaw || t == flagRaw { hitObstacle = true; break }
+                            btRow = nRow; btCol = nCol
                         }
+                        let newBIdx = btRow * cols + btCol
+                        guard newBIdx != bIdx else { continue }  // no movement
+
+                        if !hitObstacle {
+                            let nRow = btRow + dRow; let nCol = btCol + dCol
+                            if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols {
+                                // box falls off board — valid state, never a win
+                                let newNode = BFSNode(state: st.setting(index: bIdx, to: emptyRaw),
+                                                      flagIdx: fIdx)
+                                if visited.insert(newNode).inserted { next.append(newNode) }
+                                continue
+                            }
+                        }
+                        let newNode = BFSNode(state: st.setting(index: bIdx,    to: emptyRaw)
+                                                       .setting(index: newBIdx, to: boxRaw),
+                                              flagIdx: fIdx)
+                        if visited.insert(newNode).inserted { next.append(newNode) }
                     }
                 }
             }
@@ -388,14 +375,10 @@ class GameViewModel: ObservableObject {
         if isPerfectWin && currentLevel.generate {
             self.isPerfectWin = false
             generateLevelCaller()
-        }
-        else {
+        } else {
             self.isPerfectWin = false
             self.grid = currentLevel.grid
-
-            for line in grid {
-                print(line)
-            }
+            for line in grid { print(line) }
             print(isPerfectWin)
             self.flagRow = currentLevel.startPos.row
             self.flagCol = currentLevel.startPos.col
@@ -406,16 +389,9 @@ class GameViewModel: ObservableObject {
     func loadSnapshot(pop: Bool, index: Int = 0) {
         var snapshot: GameSnapshot
         if pop {
-            if snapshots.count > 0 {
-                snapshot = snapshots.popLast()!
-            }
-            else {return}
-        }
-        else {
-            if (index >= 0 && index < snapshots.count) {
-                snapshot = snapshots[index]
-            }
-            else {return}
+            if snapshots.count > 0 { snapshot = snapshots.popLast()! } else { return }
+        } else {
+            if index >= 0 && index < snapshots.count { snapshot = snapshots[index] } else { return }
         }
         self.grid = snapshot.grid
         self.pieces = snapshot.pieces
@@ -429,20 +405,15 @@ class GameViewModel: ObservableObject {
 
     private func saveSnapshot() {
         snapshots.append(GameSnapshot(
-            grid: grid,
-            pieces: pieces,
-            flagRow: flagRow,
-            flagCol: flagCol,
-            steps: steps,
-            selectedItem: selectedItem
+            grid: grid, pieces: pieces,
+            flagRow: flagRow, flagCol: flagCol,
+            steps: steps, selectedItem: selectedItem
         ))
     }
 
     func selectItem(row: Int, col: Int) {
         guard !isGameOver && !isWin else { return }
-
         let type = grid[row][col]
-
         if type == TileType.flag.rawValue {
             selectedItem = .flag
         } else if type == TileType.box.rawValue {
@@ -451,12 +422,9 @@ class GameViewModel: ObservableObject {
         syncPieceSelection()
     }
 
-    func moveSelectedItem(direction: MoveDirection, save: Bool = true) -> [Int]{
-        guard !isGameOver && !isWin, let item = selectedItem else { return [-1,-1]}
-
-        if save {
-            saveSnapshot()
-        }
+    func moveSelectedItem(direction: MoveDirection, save: Bool = true) -> [Int] {
+        guard !isGameOver && !isWin, let item = selectedItem else { return [-1, -1] }
+        if save { saveSnapshot() }
         var pos: [Int]
         switch item {
         case .flag:
@@ -468,7 +436,6 @@ class GameViewModel: ObservableObject {
         return pos
     }
 
-    // Keep piece.isSelected in sync with selectedItem
     private func syncPieceSelection() {
         for i in pieces.indices {
             switch selectedItem {
@@ -482,38 +449,25 @@ class GameViewModel: ObservableObject {
         }
     }
 
-    private func moveFlag(direction: MoveDirection) -> [Int]{
+    private func moveFlag(direction: MoveDirection) -> [Int] {
         let (dRow, dCol) = getDirectionDelta(direction)
-        var targetRow = flagRow
-        var targetCol = flagCol
-        var hitBox = false
-
+        var targetRow = flagRow, targetCol = flagCol, hitBox = false
         while true {
-            let nextRow = targetRow + dRow
-            let nextCol = targetCol + dCol
+            let nextRow = targetRow + dRow; let nextCol = targetCol + dCol
             if isOutOfBounds(row: nextRow, col: nextCol) { break }
-            if grid[nextRow][nextCol] == TileType.box.rawValue {
-                hitBox = true
-                break
-            }
-            targetRow = nextRow
-            targetCol = nextCol
+            if grid[nextRow][nextCol] == TileType.box.rawValue { hitBox = true; break }
+            targetRow = nextRow; targetCol = nextCol
         }
         if !hitBox {
-            let nextRow = targetRow + dRow
-            let nextCol = targetCol + dCol
+            let nextRow = targetRow + dRow; let nextCol = targetCol + dCol
             if isOutOfBounds(row: nextRow, col: nextCol) {
-                // Animate flag sliding off before marking game over
                 if let idx = pieces.firstIndex(where: { $0.type == .flag }) {
-                    pieces[idx].row = targetRow + dRow * 2  // push visually off-screen
+                    pieces[idx].row = targetRow + dRow * 2
                     pieces[idx].col = targetCol + dCol * 2
                 }
                 if !isTesting {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        self.isGameOver = true
-                    }
-                }
-                else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self.isGameOver = true }
+                } else {
                     self.isGameOver = true
                 }
                 grid[flagRow][flagCol] = TileType.empty.rawValue
@@ -523,47 +477,31 @@ class GameViewModel: ObservableObject {
                 return [-1, -1]
             }
         }
-
         if targetRow == flagRow && targetCol == flagCol { return [-1, -1] }
-
         grid[flagRow][flagCol] = TileType.empty.rawValue
         grid[targetRow][targetCol] = TileType.flag.rawValue
-
         if let idx = pieces.firstIndex(where: { $0.type == .flag }) {
-            pieces[idx].row = targetRow
-            pieces[idx].col = targetCol
+            pieces[idx].row = targetRow; pieces[idx].col = targetCol
         }
-
-        flagRow = targetRow
-        flagCol = targetCol
+        flagRow = targetRow; flagCol = targetCol
         steps += 1
         checkState()
         return [targetRow, targetCol]
     }
 
-    private func moveBox(fromRow: Int, fromCol: Int, direction: MoveDirection) -> [Int]{
+    private func moveBox(fromRow: Int, fromCol: Int, direction: MoveDirection) -> [Int] {
         let (dRow, dCol) = getDirectionDelta(direction)
-        var targetRow = fromRow
-        var targetCol = fromCol
-        var hitObstacle = false
-
+        var targetRow = fromRow, targetCol = fromCol, hitObstacle = false
         while true {
-            let nextRow = targetRow + dRow
-            let nextCol = targetCol + dCol
+            let nextRow = targetRow + dRow; let nextCol = targetCol + dCol
             if isOutOfBounds(row: nextRow, col: nextCol) { break }
-            if grid[nextRow][nextCol] == TileType.box.rawValue || grid[nextRow][nextCol] == TileType.flag.rawValue {
-                hitObstacle = true
-                break
-            }
-            targetRow = nextRow
-            targetCol = nextCol
+            if grid[nextRow][nextCol] == TileType.box.rawValue ||
+               grid[nextRow][nextCol] == TileType.flag.rawValue { hitObstacle = true; break }
+            targetRow = nextRow; targetCol = nextCol
         }
-
         if !hitObstacle {
-            let nextRow = targetRow + dRow
-            let nextCol = targetCol + dCol
+            let nextRow = targetRow + dRow; let nextCol = targetCol + dCol
             if isOutOfBounds(row: nextRow, col: nextCol) {
-                // Animate box sliding off, then remove it
                 if let idx = pieces.firstIndex(where: { $0.type == .box && $0.row == fromRow && $0.col == fromCol }) {
                     pieces[idx].row = targetRow + dRow * 2
                     pieces[idx].col = targetCol + dCol * 2
@@ -580,17 +518,12 @@ class GameViewModel: ObservableObject {
                 return [-1, -1]
             }
         }
-
-        if targetRow == fromRow && targetCol == fromCol { return [-1, -1]}
-
+        if targetRow == fromRow && targetCol == fromCol { return [-1, -1] }
         grid[fromRow][fromCol] = TileType.empty.rawValue
         grid[targetRow][targetCol] = TileType.box.rawValue
-
         if let idx = pieces.firstIndex(where: { $0.type == .box && $0.row == fromRow && $0.col == fromCol }) {
-            pieces[idx].row = targetRow
-            pieces[idx].col = targetCol
+            pieces[idx].row = targetRow; pieces[idx].col = targetCol
         }
-
         steps += 1
         selectedItem = .box(row: targetRow, col: targetCol)
         return [targetRow, targetCol]
@@ -598,10 +531,10 @@ class GameViewModel: ObservableObject {
 
     private func getDirectionDelta(_ direction: MoveDirection) -> (Int, Int) {
         switch direction {
-        case .up: return (-1, 0)
-        case .down: return (1, 0)
-        case .left: return (0, -1)
-        case .right: return (0, 1)
+        case .up:    return (-1,  0)
+        case .down:  return ( 1,  0)
+        case .left:  return ( 0, -1)
+        case .right: return ( 0,  1)
         }
     }
 
@@ -609,14 +542,12 @@ class GameViewModel: ObservableObject {
         return row < 0 || row >= grid.count || col < 0 || col >= grid[0].count
     }
 
-    // Check for win condition and determine if it is the optimal solution
     private func checkState(considerLoss: Bool = false) {
         if flagRow == currentLevel.targetPos.row && flagCol == currentLevel.targetPos.col {
             isWin = true
             selectedItem = nil
             isPerfectWin = steps <= currentLevel.minSteps
-        }
-        else if considerLoss{
+        } else if considerLoss {
             isGameOver = isOutOfBounds(row: flagRow, col: flagCol)
         }
     }
