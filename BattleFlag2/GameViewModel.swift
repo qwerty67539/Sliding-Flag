@@ -67,7 +67,7 @@ class GameViewModel: ObservableObject {
             generateLevelCaller()
         }
     }
-    
+
     func generateLevelCaller() {
         var activated = false
         while (true) {
@@ -78,7 +78,7 @@ class GameViewModel: ObservableObject {
             activated = true
         }
     }
-    
+
     func generateLevel() -> Bool{
         grid = [
             [-1, -1, -1, -1, -1, -1, -1, -1],
@@ -142,7 +142,7 @@ class GameViewModel: ObservableObject {
                     direction = newDirection
                 }
             } while repeats < 0
-            
+
             if grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 0 || grid[pointer[0] + getDirectionDelta(direction).0][pointer[1] + getDirectionDelta(direction).1] == 2 {
                 pointer = pointerReset
                 grid = gridReset
@@ -192,7 +192,7 @@ class GameViewModel: ObservableObject {
         }
         return true
     }
-    
+
     func oppositeDirection(direction: MoveDirection?) -> MoveDirection? {
         if direction == .up {
             return .down
@@ -210,123 +210,146 @@ class GameViewModel: ObservableObject {
             return nil
         }
     }
-    
-    // Lightweight BFS state — no SwiftUI overhead, no MovingPiece arrays.
-    // The grid is the only source of truth; flagRow/Col are stored alongside it.
-    private struct BFSState: Hashable {
-        var grid: [[Int]]
-        var flagRow: Int
-        var flagCol: Int
 
-        static func == (lhs: Self, rhs: Self) -> Bool {
-            lhs.grid == rhs.grid && lhs.flagRow == rhs.flagRow && lhs.flagCol == rhs.flagCol
+    // -------------------------------------------------------------------------
+    // Compact BFS state: entire 8×8 board packed into two UInt64 words.
+    // 2 bits per cell (values 0–3) × 64 cells = 128 bits total.
+    // Hashing and equality are O(1) integer ops — no Array overhead.
+    // -------------------------------------------------------------------------
+    private struct BFSState: Hashable {
+        var w0: UInt64   // cells 0–31  (row*cols+col, 2 bits each)
+        var w1: UInt64   // cells 32–63
+
+        @inline(__always)
+        func tile(at index: Int) -> Int {
+            let shift = (index & 31) << 1
+            let word  = index < 32 ? w0 : w1
+            return Int((word >> shift) & 0x3)
         }
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(grid)
-            hasher.combine(flagRow)
-            hasher.combine(flagCol)
+
+        @inline(__always)
+        func setting(index: Int, to value: Int) -> BFSState {
+            let shift = UInt64((index & 31) << 1)
+            let mask  = UInt64(0x3) << shift
+            let bits  = UInt64(value & 0x3) << shift
+            if index < 32 {
+                return BFSState(w0: (w0 & ~mask) | bits, w1: w1)
+            } else {
+                return BFSState(w0: w0, w1: (w1 & ~mask) | bits)
+            }
         }
     }
 
-    // Apply one move on a BFSState value. Returns nil when the move is invalid
-    // (no displacement, falls out of bounds, or kills the flag).
-    private func bfsApplyMove(state: BFSState,
-                               pieceRow: Int, pieceCol: Int,
-                               direction: MoveDirection,
-                               targetPos: (row: Int, col: Int)) -> (state: BFSState, won: Bool)? {
-        var g = state.grid
-        var fRow = state.flagRow
-        var fCol = state.flagCol
-        let rows = g.count
-        let cols = g[0].count
-        let (dRow, dCol) = getDirectionDelta(direction)
-
-        let tileType = g[pieceRow][pieceCol]
-        guard tileType == TileType.flag.rawValue || tileType == TileType.box.rawValue else { return nil }
-
-        let isFlag = (tileType == TileType.flag.rawValue)
-
-        var tRow = pieceRow
-        var tCol = pieceCol
-
-        if isFlag {
-            // Slide until hitting a box or a wall
-            var hitBox = false
-            while true {
-                let nRow = tRow + dRow; let nCol = tCol + dCol
-                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols { break }
-                if g[nRow][nCol] == TileType.box.rawValue { hitBox = true; break }
-                tRow = nRow; tCol = nCol
+    // Pack self.grid into a BFSState bitboard.
+    private func packGrid() -> BFSState {
+        let cols = grid[0].count
+        var w0: UInt64 = 0, w1: UInt64 = 0
+        for r in grid.indices {
+            for c in grid[r].indices {
+                let idx   = r * cols + c
+                let shift = UInt64((idx & 31) << 1)
+                let bits  = UInt64(grid[r][c] & 0x3) << shift
+                if idx < 32 { w0 |= bits } else { w1 |= bits }
             }
-            if !hitBox {
-                // Would slide off the board — flag dies, invalid
-                return nil
-            }
-            if tRow == pieceRow && tCol == pieceCol { return nil } // no movement
-            g[pieceRow][pieceCol] = TileType.empty.rawValue
-            g[tRow][tCol] = TileType.flag.rawValue
-            fRow = tRow; fCol = tCol
-        } else {
-            // Box move
-            var hitObstacle = false
-            while true {
-                let nRow = tRow + dRow; let nCol = tCol + dCol
-                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols { break }
-                if g[nRow][nCol] == TileType.box.rawValue || g[nRow][nCol] == TileType.flag.rawValue {
-                    hitObstacle = true; break
-                }
-                tRow = nRow; tCol = nCol
-            }
-            if !hitObstacle {
-                let nRow = tRow + dRow; let nCol = tCol + dCol
-                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols {
-                    // Box falls off — still a valid state (box removed), but never a win
-                    if tRow == pieceRow && tCol == pieceCol { return nil }
-                    g[pieceRow][pieceCol] = TileType.empty.rawValue
-                    let newState = BFSState(grid: g, flagRow: fRow, flagCol: fCol)
-                    return (newState, false)
-                }
-            }
-            if tRow == pieceRow && tCol == pieceCol { return nil }
-            g[pieceRow][pieceCol] = TileType.empty.rawValue
-            g[tRow][tCol] = TileType.box.rawValue
         }
+        return BFSState(w0: w0, w1: w1)
+    }
 
-        let won = (fRow == targetPos.row && fCol == targetPos.col)
-        let newState = BFSState(grid: g, flagRow: fRow, flagCol: fCol)
-        return (newState, won)
+    // BFS node: bitboard + flag cell index (row*cols+col).
+    // Storing flagIdx separately avoids an O(64) scan to locate the flag each expansion.
+    private struct BFSNode: Hashable {
+        var state:   BFSState
+        var flagIdx: Int
     }
 
     // BFS for optimal solution — fully self-contained, never touches @Published state.
+    // Uses a compact bitboard so hashing/equality are O(1) integer ops.
     func findOptimal(maxSteps: Int = 5) -> Int {
-        let target = currentLevel.targetPos
-        let rows = grid.count
-        let cols = grid[0].count
+        let startTime = Date()
 
-        let initial = BFSState(grid: grid, flagRow: flagRow, flagCol: flagCol)
-        var frontier: [BFSState] = [initial]
-        var visited: Set<BFSState> = [initial]
+        let rows      = grid.count
+        let cols      = grid[0].count
+        let target    = currentLevel.targetPos
+        let targetIdx = target.row * cols + target.col
+
+        let flagRaw  = TileType.flag.rawValue
+        let boxRaw   = TileType.box.rawValue
+        let emptyRaw = TileType.empty.rawValue
+
+        // Four directions as plain (dRow, dCol) — avoids enum switch in hot loop.
+        let deltas = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+        let initial  = BFSNode(state: packGrid(), flagIdx: flagRow * cols + flagCol)
+        var frontier = [initial]
+        var visited  = Set<BFSNode>(minimumCapacity: 1 << 18)
+        visited.insert(initial)
 
         for step in 1...maxSteps {
-            var next: [BFSState] = []
+            var next = [BFSNode]()
+            next.reserveCapacity(frontier.count * 4)
 
-            for state in frontier {
-                for r in 0..<rows {
-                    for c in 0..<cols {
-                        let tile = state.grid[r][c]
-                        guard tile == TileType.flag.rawValue || tile == TileType.box.rawValue else { continue }
-                        for direction in MoveDirection.allCases {
-                            guard let (newState, won) = bfsApplyMove(
-                                state: state, pieceRow: r, pieceCol: c,
-                                direction: direction, targetPos: target
-                            ) else { continue }
+            for node in frontier {
+                let st   = node.state
+                let fIdx = node.flagIdx
+                let fRow = fIdx / cols
+                let fCol = fIdx % cols
 
-                            if won { return step }
+                for (dRow, dCol) in deltas {
 
-                            if !visited.contains(newState) {
-                                visited.insert(newState)
-                                next.append(newState)
+                    // ── Move flag ──────────────────────────────────────────
+                    var tRow = fRow, tCol = fCol, hitBox = false
+                    while true {
+                        let nRow = tRow + dRow; let nCol = tCol + dCol
+                        if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols { break }
+                        if st.tile(at: nRow * cols + nCol) == boxRaw { hitBox = true; break }
+                        tRow = nRow; tCol = nCol
+                    }
+                    if hitBox && !(tRow == fRow && tCol == fCol) {
+                        let newFIdx = tRow * cols + tCol
+                        let newSt   = st.setting(index: fIdx,    to: emptyRaw)
+                                        .setting(index: newFIdx, to: flagRaw)
+                        if newFIdx == targetIdx {
+                            let elapsed = Date().timeIntervalSince(startTime)
+                            print("[findOptimal] Found solution in \(step) step(s). Total time: \(String(format: "%.4f", elapsed))s")
+                            return step
+                        }
+                        let newNode = BFSNode(state: newSt, flagIdx: newFIdx)
+                        if visited.insert(newNode).inserted { next.append(newNode) }
+                    }
+
+                    // ── Move each box ──────────────────────────────────────
+                    for r in 0..<rows {
+                        for c in 0..<cols {
+                            let bIdx = r * cols + c
+                            guard st.tile(at: bIdx) == boxRaw else { continue }
+
+                            var btRow = r, btCol = c, hitObstacle = false
+                            while true {
+                                let nRow = btRow + dRow; let nCol = btCol + dCol
+                                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols { break }
+                                let t = st.tile(at: nRow * cols + nCol)
+                                if t == boxRaw || t == flagRaw { hitObstacle = true; break }
+                                btRow = nRow; btCol = nCol
                             }
+
+                            let newBIdx = btRow * cols + btCol
+                            guard newBIdx != bIdx else { continue }  // no movement
+
+                            if !hitObstacle {
+                                let nRow = btRow + dRow; let nCol = btCol + dCol
+                                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols {
+                                    // box falls off board — valid state, never a win
+                                    let newSt   = st.setting(index: bIdx, to: emptyRaw)
+                                    let newNode = BFSNode(state: newSt, flagIdx: fIdx)
+                                    if visited.insert(newNode).inserted { next.append(newNode) }
+                                    continue
+                                }
+                            }
+
+                            let newSt   = st.setting(index: bIdx,    to: emptyRaw)
+                                           .setting(index: newBIdx, to: boxRaw)
+                            let newNode = BFSNode(state: newSt, flagIdx: fIdx)
+                            if visited.insert(newNode).inserted { next.append(newNode) }
                         }
                     }
                 }
@@ -336,6 +359,8 @@ class GameViewModel: ObservableObject {
             frontier = next
         }
 
+        let elapsed = Date().timeIntervalSince(startTime)
+        print("[findOptimal] No solution found within \(maxSteps) step(s). Total time: \(String(format: "%.4f", elapsed))s")
         return -1
     }
 
@@ -367,7 +392,7 @@ class GameViewModel: ObservableObject {
         else {
             self.isPerfectWin = false
             self.grid = currentLevel.grid
-        
+
             for line in grid {
                 print(line)
             }
@@ -428,7 +453,7 @@ class GameViewModel: ObservableObject {
 
     func moveSelectedItem(direction: MoveDirection, save: Bool = true) -> [Int]{
         guard !isGameOver && !isWin, let item = selectedItem else { return [-1,-1]}
-        
+
         if save {
             saveSnapshot()
         }
