@@ -211,69 +211,132 @@ class GameViewModel: ObservableObject {
         }
     }
     
-    //BFS for optimal solution
+    // Lightweight BFS state — no SwiftUI overhead, no MovingPiece arrays.
+    // The grid is the only source of truth; flagRow/Col are stored alongside it.
+    private struct BFSState: Hashable {
+        var grid: [[Int]]
+        var flagRow: Int
+        var flagCol: Int
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.grid == rhs.grid && lhs.flagRow == rhs.flagRow && lhs.flagCol == rhs.flagCol
+        }
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(grid)
+            hasher.combine(flagRow)
+            hasher.combine(flagCol)
+        }
+    }
+
+    // Apply one move on a BFSState value. Returns nil when the move is invalid
+    // (no displacement, falls out of bounds, or kills the flag).
+    private func bfsApplyMove(state: BFSState,
+                               pieceRow: Int, pieceCol: Int,
+                               direction: MoveDirection,
+                               targetPos: (row: Int, col: Int)) -> (state: BFSState, won: Bool)? {
+        var g = state.grid
+        var fRow = state.flagRow
+        var fCol = state.flagCol
+        let rows = g.count
+        let cols = g[0].count
+        let (dRow, dCol) = getDirectionDelta(direction)
+
+        let tileType = g[pieceRow][pieceCol]
+        guard tileType == TileType.flag.rawValue || tileType == TileType.box.rawValue else { return nil }
+
+        let isFlag = (tileType == TileType.flag.rawValue)
+
+        var tRow = pieceRow
+        var tCol = pieceCol
+
+        if isFlag {
+            // Slide until hitting a box or a wall
+            var hitBox = false
+            while true {
+                let nRow = tRow + dRow; let nCol = tCol + dCol
+                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols { break }
+                if g[nRow][nCol] == TileType.box.rawValue { hitBox = true; break }
+                tRow = nRow; tCol = nCol
+            }
+            if !hitBox {
+                // Would slide off the board — flag dies, invalid
+                return nil
+            }
+            if tRow == pieceRow && tCol == pieceCol { return nil } // no movement
+            g[pieceRow][pieceCol] = TileType.empty.rawValue
+            g[tRow][tCol] = TileType.flag.rawValue
+            fRow = tRow; fCol = tCol
+        } else {
+            // Box move
+            var hitObstacle = false
+            while true {
+                let nRow = tRow + dRow; let nCol = tCol + dCol
+                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols { break }
+                if g[nRow][nCol] == TileType.box.rawValue || g[nRow][nCol] == TileType.flag.rawValue {
+                    hitObstacle = true; break
+                }
+                tRow = nRow; tCol = nCol
+            }
+            if !hitObstacle {
+                let nRow = tRow + dRow; let nCol = tCol + dCol
+                if nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols {
+                    // Box falls off — still a valid state (box removed), but never a win
+                    if tRow == pieceRow && tCol == pieceCol { return nil }
+                    g[pieceRow][pieceCol] = TileType.empty.rawValue
+                    let newState = BFSState(grid: g, flagRow: fRow, flagCol: fCol)
+                    return (newState, false)
+                }
+            }
+            if tRow == pieceRow && tCol == pieceCol { return nil }
+            g[pieceRow][pieceCol] = TileType.empty.rawValue
+            g[tRow][tCol] = TileType.box.rawValue
+        }
+
+        let won = (fRow == targetPos.row && fCol == targetPos.col)
+        let newState = BFSState(grid: g, flagRow: fRow, flagCol: fCol)
+        return (newState, won)
+    }
+
+    // BFS for optimal solution — fully self-contained, never touches @Published state.
     func findOptimal(maxSteps: Int = 5) -> Int {
-        isTesting = true
-        saveSnapshot()
-        var found: Bool = false
-        var timeLimitExceeded: Bool = false
-        var steps: Int = 0
-        var visited: Set<GameSnapshot> = []
-        while (!found && !timeLimitExceeded) {
-            var newSnapshots: [GameSnapshot] = []
-            for index in 0..<snapshots.count where !found {
-                print("Step \(steps), index \(index), length \(snapshots.count)")
-                loadSnapshot(pop: false, index: index)
-                let repeats = pieces.count
-                for i in 0..<repeats where !found && !isOutOfBounds(row: pieces[i].row, col: pieces[i].col) {
-                    let piece = pieces[i]
-                    for direction in MoveDirection.allCases {
-                        loadSnapshot(pop: false, index: index)
-                        selectItem(row: piece.row, col: piece.col)
-                        let valid = moveSelectedItem(direction: direction, save: false)
-                        if (!isOutOfBounds(row: valid[0], col: valid[1])) {
-                            checkState(considerLoss: true)
-                            if (isWin) {
-                                found = true
-                                print("Winning Grid: ")
-                                for line in grid {
-                                    print(line)
-                                }
-                                break
-                            }
-                            let nextNode = GameSnapshot(
-                                grid: grid,
-                                pieces: pieces,
-                                flagRow: flagRow,
-                                flagCol: flagCol,
-                                steps: steps,
-                                selectedItem: selectedItem
-                            )
-                            if !visited.contains(nextNode) {
-                                newSnapshots.append(nextNode)
-                                visited.insert(nextNode.copy())
+        let target = currentLevel.targetPos
+        let rows = grid.count
+        let cols = grid[0].count
+
+        let initial = BFSState(grid: grid, flagRow: flagRow, flagCol: flagCol)
+        var frontier: [BFSState] = [initial]
+        var visited: Set<BFSState> = [initial]
+
+        for step in 1...maxSteps {
+            var next: [BFSState] = []
+
+            for state in frontier {
+                for r in 0..<rows {
+                    for c in 0..<cols {
+                        let tile = state.grid[r][c]
+                        guard tile == TileType.flag.rawValue || tile == TileType.box.rawValue else { continue }
+                        for direction in MoveDirection.allCases {
+                            guard let (newState, won) = bfsApplyMove(
+                                state: state, pieceRow: r, pieceCol: c,
+                                direction: direction, targetPos: target
+                            ) else { continue }
+
+                            if won { return step }
+
+                            if !visited.contains(newState) {
+                                visited.insert(newState)
+                                next.append(newState)
                             }
                         }
                     }
                 }
             }
-            steps += 1
-            if steps > maxSteps {
-                timeLimitExceeded = true
-                break
-            }
-            snapshots = newSnapshots
-            newSnapshots = []
-            
+
+            if next.isEmpty { break }
+            frontier = next
         }
-        reset()
-        isTesting = false
-        if found {
-            return steps
-        }
-        else {
-            return -1
-        }
+
+        return -1
     }
 
     // Build the initial MovingPiece list from a grid snapshot
