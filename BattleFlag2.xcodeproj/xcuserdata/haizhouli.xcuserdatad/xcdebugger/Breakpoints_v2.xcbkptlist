@@ -14,9 +14,9 @@
             filePath = "BattleFlag2/GameViewModel.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "228"
-            endingLineNumber = "228"
-            landmarkName = "boxIndices()"
+            startingLineNumber = "234"
+            endingLineNumber = "234"
+            landmarkName = "generateMediumLevel()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -32,7 +32,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "98"
             endingLineNumber = "98"
-            landmarkName = "generateLevel()"
+            landmarkName = "generateEasyLevel()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -48,7 +48,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "121"
             endingLineNumber = "121"
-            landmarkName = "generateLevel()"
+            landmarkName = "generateEasyLevel()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -64,7 +64,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "122"
             endingLineNumber = "122"
-            landmarkName = "generateLevel()"
+            landmarkName = "generateEasyLevel()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
